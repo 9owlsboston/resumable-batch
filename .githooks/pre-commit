@@ -1,0 +1,65 @@
+#!/bin/sh
+# Generic pre-commit guard (dev-env-setup parallel-agent toolkit).
+#
+#   1. Refuse commits on a protected branch (main/master/release/*) or in the
+#      MAIN checkout (the integration anchor) — work in a worktree instead.
+#   2. Scan ONLY the added lines (staged diff) for high-signal secrets.
+#
+# This is a SEATBELT (bypass with `git commit --no-verify`); branch protection
+# on the remote is the authoritative floor. Customize the secret patterns below
+# for your project (e.g. add an org email domain).
+
+# --- Guard 0: protected-branch + main-checkout --------------------------------
+# A linked worktree has a .git *file*; the main checkout has a .git *directory*.
+_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null || echo DETACHED)
+case "$_branch" in
+    main|master|release/*)
+        echo "STOP: refusing to commit directly on protected branch '$_branch'." >&2
+        echo "  Work in a feature branch inside a worktree." >&2
+        echo "  (Override once with --no-verify if you truly mean to.)" >&2
+        exit 1 ;;
+esac
+if [ -d .git ]; then
+    echo "STOP: you are committing in the MAIN checkout (the integration anchor)." >&2
+    echo "  Create a worktree first:" >&2
+    echo "    git worktree add ../$(basename "$PWD").worktrees/<topic> -b <type>/<topic> origin/$_branch" >&2
+    echo "  (Override once with --no-verify if you truly mean to.)" >&2
+    exit 1
+fi
+
+# --- Rule 1: scan ADDED lines (staged diff) for secrets -----------------------
+# Scanning the diff (not whole files) avoids false positives on pre-existing
+# content — otherwise every commit that merely touches a file with an old match
+# gets blocked, which trains reflexive --no-verify.
+BLOCKED=0
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+for file in $STAGED; do
+    case "$file" in
+        *.png|*.jpg|*.jpeg|*.gif|*.ico|*.webp|*.pdf|*.zip|*.gz|*.7z|*.db|*.sqlite*|*.lock) continue ;;
+        .githooks/*) continue ;;
+    esac
+    ADDED=$(git diff --cached -U0 -- "$file" 2>/dev/null | grep '^+' | grep -v '^+++')
+    [ -z "$ADDED" ] && continue
+
+    if printf '%s' "$ADDED" | grep -qE 'BEGIN (RSA |EC |OPENSSH |PGP |DSA )?PRIVATE KEY'; then
+        echo "BLOCKED: $file -- looks like a private key" >&2; BLOCKED=1
+    fi
+    if printf '%s' "$ADDED" | grep -qE 'AKIA[0-9A-Z]{16}'; then
+        echo "BLOCKED: $file -- looks like an AWS access key id" >&2; BLOCKED=1
+    fi
+    # assigned secret with a real-looking value (>=16 chars), excluding placeholders/env refs
+    if printf '%s' "$ADDED" \
+        | grep -iE '(password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)["'"'"' ]*[:=]["'"'"' ]*[A-Za-z0-9/+=_.-]{16,}' \
+        | grep -viE 'example|placeholder|changeme|your[_-]|xxxx|<[^>]+>|\$\{|\$\(|env\(|process\.env|getenv|os\.environ|redacted|\*\*\*' >/dev/null; then
+        echo "BLOCKED: $file -- looks like a hard-coded secret/token" >&2; BLOCKED=1
+    fi
+done
+
+if [ "$BLOCKED" -eq 1 ]; then
+    echo "" >&2
+    echo "COMMIT BLOCKED -- a possible secret was found in your ADDED lines." >&2
+    echo "  Remove it, or (if a false positive) tune .githooks/pre-commit." >&2
+    echo "  Emergency bypass: git commit --no-verify" >&2
+    exit 1
+fi
+exit 0

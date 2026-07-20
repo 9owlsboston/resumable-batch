@@ -1,0 +1,13 @@
+# CODEOWNERS — optional review routing.
+# Branch protection can require code-owner review; until you turn that on, this
+# is documentation of who-knows-what. Replace the placeholders.
+#
+# Syntax: <path-glob>  <@owner> [<@owner> ...]
+#
+# Default owner for everything:
+# *                         @your-handle
+#
+# Examples:
+# /infra/                   @your-handle @ops-team
+# /docs/                    @your-handle
+# *.sql                     @data-team

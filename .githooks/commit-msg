@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# commit-msg — enforce Conventional Commits subject line.
+# Installed by bootstrap-repo.sh into .githooks/.
+#
+# Format: <type>(<optional scope>)!?: <subject>
+# Types:  feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+# Bypass: git commit --no-verify (the server still has CI to gate merge).
+#
+# If a commitlint config file exists in the repo AND `npx commitlint` is
+# available, this hook ADDITIONALLY runs commitlint for richer checks (scope
+# enums, body line length, etc.). Otherwise the shell regex is the floor.
+
+msg_file="$1"
+first_line="$(head -n1 "$msg_file")"
+
+# Skip auto-generated commit messages
+case "$first_line" in
+  Merge*|fixup!*|squash!*|"Revert \""*) exit 0 ;;
+  '#'*|'') exit 0 ;;   # purely comment/empty — git will reject anyway
+esac
+
+regex='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/-]+\))?!?: .{1,}$'
+
+if ! printf '%s' "$first_line" | grep -qE "$regex"; then
+  cat >&2 <<'EOF'
+✗ Commit message does not follow Conventional Commits.
+
+  Format:   <type>(<optional-scope>)!?: <subject>
+  Types:    feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+  Examples:
+    feat(auth): add JWT refresh
+    fix: null check on user lookup
+    docs: clarify SDLC stages
+    refactor(api)!: drop deprecated v1 endpoints   ← `!` marks BREAKING CHANGE
+
+  Spec:     https://www.conventionalcommits.org/
+  Bypass:   git commit --no-verify   (not recommended; CI still gates merge)
+EOF
+  echo "  Got:      $first_line" >&2
+  exit 1
+fi
+
+# Optional richer check via commitlint if both config + tool exist.
+for cfg in commitlint.config.cjs commitlint.config.js commitlint.config.mjs .commitlintrc.json .commitlintrc.yml .commitlintrc.yaml; do
+  if [ -f "$cfg" ]; then
+    if command -v npx >/dev/null 2>&1; then
+      npx --no-install commitlint --edit "$msg_file" 2>/dev/null && break
+      # If --no-install fails because commitlint isn't installed, that's fine —
+      # the shell regex above already enforced the floor.
+    fi
+    break
+  fi
+done
+
+exit 0

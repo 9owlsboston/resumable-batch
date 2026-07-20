@@ -16,11 +16,12 @@ here).
 ## 1. What this repo is
 
 A standalone Python **library** (category: engine) — a domain-agnostic checkpoint +
-transient-retry orchestrator for long-running chunked work. **Spec stage:** the
-design is accepted (`docs/design/checkpoint-library-generalization.md`, v3); no
-product code exists yet. The engine is being extracted from `acr-analytics`
-(`scripts/recipes/batch_checkpoint.py`); that file + `tests/test_batch_checkpoint.py`
-are the reference implementation to port.
+transient-retry orchestrator for long-running chunked work. **Implemented:** the
+engine + Parquet/JSONL stores are ported behind the generalized API of
+`docs/design/checkpoint-library-generalization.md` (v3). The reference
+implementation it was extracted from is `acr-analytics`
+(`scripts/recipes/batch_checkpoint.py` + `tests/test_batch_checkpoint.py`); that
+CUD wiring remains the regression target. Package lives at `src/resumable_batch/`.
 
 ## 2. Hard rules (repo-specific)
 
@@ -43,18 +44,17 @@ are the reference implementation to port.
 
 ## 3. Run / test
 
-**Not yet established** — no code or `requirements.txt` exists. When the port lands,
-the expected shape (per the design's test plan) is:
-
 ```bash
-python3 -m pip install -e '.[test]'   # or requirements.txt — TBD at impl time
-python3 -m pytest                      # unit tests, incl. ported test_batch_checkpoint.py
+python3 -m pip install -e '.[test]'   # editable install + pytest/pandas/pyarrow
+python3 -m pytest                      # full suite (ported CUD regression + features)
 ```
 
-The design mandates a **Linux + Windows CI matrix** and specific test cases
-(result-digest completeness, generation-binding torn-write, Retry-After bounds,
-split-progress, cross-OS lock death-release) — see the spec §7. Update this section
-with the real commands once the first implementation PR verifies them.
+Runtime install with the parquet store: `pip install 'resumable-batch[parquet]'`.
+The orchestrator core is stdlib-only; `pyarrow`/`pandas` come only via the
+`parquet`/`test` extras. CI runs a **Linux + Windows matrix**
+(`.github/workflows/ci.yml`) covering result-digest completeness,
+generation-binding torn-write, Retry-After bounds, split-progress, and cross-OS
+lock behavior (spec §7).
 
 ## 4. Where to write (docs map)
 

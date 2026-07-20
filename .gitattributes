@@ -24,3 +24,12 @@
 *.woff2 binary
 *.ttf   binary
 *.otf   binary
+
+# --- Merge strategy: append-only "durable trail" files ---
+# Nearly every PR appends to these (a CHANGELOG entry, a parking-lot row), so two
+# parallel PRs ALWAYS collide on them. `merge=union` makes git concatenate both
+# sides instead of raising a conflict — the correct behavior for append-only
+# logs. (`union` is a built-in git merge driver — no extra config.) Skim the
+# result at release time for the rare duplicate/out-of-order line.
+CHANGELOG.md        merge=union
+docs/parking-lot.md merge=union
