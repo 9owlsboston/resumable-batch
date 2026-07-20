@@ -1,0 +1,26 @@
+# --- Universal baseline ---
+# Line endings: LF in repo; checkout-native on Windows. PowerShell stays CRLF
+# because some pwsh hosts trip on LF-only .ps1/.cmd.
+* text=auto eol=lf
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.cmd   text eol=crlf
+*.bat   text eol=crlf
+
+# Mark common binaries so git stops trying to diff them
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.tgz   binary
+*.bz2   binary
+*.xz    binary
+*.7z    binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary

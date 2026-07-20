@@ -1,0 +1,48 @@
+# Seeded by bootstrap-repo.sh — universal baseline.
+# Language-specific patterns: prefer `gh repo create --gitignore <Language>`
+# at repo creation. Stack snippets exist for the patterns *this toolkit itself*
+# generates (e.g. `*.toolkit-new`) and for layouts the toolkit prescribes.
+
+# --- OS noise ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# --- Editor / IDE noise ---
+*.swp
+*.swo
+*~
+.idea/
+*.iml
+
+# VS Code: ignore by default, but allow committed team settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# --- Secrets / local env ---
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+
+# --- Toolkit artifacts (NEVER commit these) ---
+# `bootstrap-repo.sh` writes `<file>.toolkit-new` beside conflicting files for
+# manual merge. Accidentally committing them is embarrassing — defend against it.
+*.toolkit-new
+
+# --- Logs / temp ---
+*.log
+logs/
+tmp/
+.tmp/
+.cache/
