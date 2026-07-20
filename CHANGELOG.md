@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reduce`/`finalize` combine.
 - `pyproject.toml` (package `resumable_batch`; `parquet`/`test` extras) and a
   Linux + Windows GitHub Actions CI matrix.
-- Ported CUD regression suite + generalized-feature tests (79 tests).
+- Ported CUD regression suite + generalized-feature tests (89 tests).
 
 ### Changed
 - Repo grown from profile `xs` to `m` (git hooks + collaborative scaffolding).
@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   old caches invalidate + wipe cleanly on read.
 
 ### Fixed
+- Store read paths (`JsonlResultStore`, `ParquetResultStore`) now treat a
+  readable-but-corrupt body (invalid UTF-8, unconvertible pandas metadata) as a
+  benign cache miss instead of letting the exception escape `has()`/`load()`.
+- Parquet result digest normalizes through an Arrow round-trip so non-scalar
+  columns (lists, Decimals) stay round-trip-stable — a freshly committed result is
+  an immediate cache hit rather than failing its own `has()` check.
+- `has()` now also binds the manifest entry's `byte_len`/`record_count` to the
+  payload (defense-in-depth alongside the generation binding).
+
 ### Removed
 ### Security
 

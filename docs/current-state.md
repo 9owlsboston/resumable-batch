@@ -21,7 +21,7 @@ and JSONL stores are ported from the shipped `acr-analytics`
 (`scripts/recipes/batch_checkpoint.py`) behind the generalized API in
 `docs/design/checkpoint-library-generalization.md` (v3), with a Linux + Windows CI
 matrix. The ported CUD (consumer #1) regression suite plus generalized-feature
-tests are green (79 tests on Linux). A Microsoft Graph service-principal inventory
+tests are green (89 tests on Linux). A Microsoft Graph service-principal inventory
 crawler (>1M SPs) is the intended second consumer (not yet built).
 
 ## Diagram

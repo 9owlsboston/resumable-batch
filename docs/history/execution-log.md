@@ -56,3 +56,26 @@ passed** on Linux (50 ported CUD-regression tests + 29 generalized-feature tests
 `python3 -m compileall src tests` clean; `python3 -m build --wheel` succeeded
 (artifacts removed). Windows leg is authored but exercised only by CI (not this
 host).
+
+### 2026-07-20 — SDLC Verify + confirmation rubber-duck (post-merge audit)
+
+Ran the stage-3 `verifier` (read-only audit vs spec §4/§7) and a fresh
+confirmation `rubber-duck` against merged `main` (aed3aeb). Verifier verdict:
+**PASS** — all 8 binding acceptance criteria met with file:line evidence, ported
+CUD suite byte-preserving (not weakened), reference unsplittable-OOM-fatal
+(`batch_checkpoint.py:811-822`) retained. Rubber-duck raised 2 blocking + 2
+non-blocking robustness findings on the read paths.
+
+Fixed on branch `fix/store-robustness-verify`: (1) JSONL `_read_file` now catches
+`UnicodeDecodeError`/`ValueError` → miss (a corrupt body never raises out of
+`has()`); (2) Parquet `_read_file` guards the whole read incl. `to_pandas()` →
+miss on any corruption; (3) Parquet `_canonical_bytes` normalizes through an Arrow
+round-trip so non-scalar dtypes (list/Decimal) stay digest-stable (a fresh commit
+is an immediate hit); (4) `_check` now binds manifest `byte_len`/`record_count` to
+the payload too. Closed the verifier's gaps: added the §7 legacy-cache fixture test
+(v1 `schema_version=1` cache wiped-not-corrupted on open), strengthened the
+non-self-referential-digest test to actively mutate the header, and corrected the
+stale test count (79 → 89) in CHANGELOG + current-state.
+
+Verified: `python3 -m pytest` → **89 passed** on Linux; `compileall` clean. Both
+Windows CI legs green after merge (see PR #2).

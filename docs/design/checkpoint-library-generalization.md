@@ -482,3 +482,14 @@ the JSONL store + streaming combine, and sets `retry_after_fn`/`should_split`.
     §4.4); the split "budget" is the **depth cap**, which bounds the chain even
     when item sizes are unknown (`target_size == 0`), with strict-shrink enforced
     whenever sizes are known. No open blockers remain.
+
+- **Verify + confirmation rubber-duck (post-merge audit):** stage-3 `verifier`
+  returned **PASS** (all 8 acceptance criteria met, CUD parity preserved, 89 tests
+  green). A fresh confirmation `rubber-duck` found 2 blocking + 2 non-blocking
+  read-path robustness gaps — **all 4 fixed** (PR #2) with regression tests:
+  corrupt JSONL (bad UTF-8) and corrupt Parquet (`to_pandas` failure) now return a
+  miss instead of raising out of `has()`; the Parquet digest normalizes through an
+  Arrow round-trip for non-scalar dtype stability; `has()` binds manifest
+  `byte_len`/`record_count`. Also closed the verifier's non-blocking gaps: added
+  the §7 legacy-cache fixture test and corrected the stale test count. No open
+  blockers remain.
