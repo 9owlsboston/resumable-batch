@@ -466,3 +466,19 @@ the JSONL store + streaming combine, and sets `retry_after_fn`/`should_split`.
   - **Terminated by acceptance at v3** — all 11 findings closed; no open blockers
     remain (remaining items are non-blocking product decisions in §8). A brief v3
     confirmation is welcome but not gating for GO.
+
+- **Diff-stage rubber-duck (implementation PR):** **ran, 1 round.** Reviewed the
+  ported `src/resumable_batch/` engine + stores + cross-OS shim against the §4
+  contract. Raised 5 findings; adjudicated:
+  - *Applied (3):* per-entry manifest validation so a single malformed entry
+    wipes ALL (all-or-nothing boundary); `commit` rolls back its in-memory entry
+    if the manifest write fails (never vouches for a payload the on-disk boundary
+    doesn't); content_key path-safety validation (a buggy `content_key_fn` can't
+    write outside the cache dir). Each has a regression test
+    (`tests/test_features.py::TestStoreHardening`).
+  - *Adjudicated non-blocking (2):* FS fail-closed gating is a **caller-side**
+    decision via `fs_cache_enabled` (self-gating the store would break the common
+    tmpfs dev/CI cache dir, and correctness never depends on FS durability —
+    §4.4); the split "budget" is the **depth cap**, which bounds the chain even
+    when item sizes are unknown (`target_size == 0`), with strict-shrink enforced
+    whenever sizes are known. No open blockers remain.

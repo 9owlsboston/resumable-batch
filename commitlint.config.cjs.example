@@ -1,0 +1,21 @@
+// commitlint config — OPTIONAL richer enforcement on top of the shell regex
+// in .githooks/commit-msg.
+//
+// To activate:
+//   1. Rename this file: `mv commitlint.config.cjs.example commitlint.config.cjs`
+//   2. Install dev deps: `npm install --save-dev @commitlint/cli @commitlint/config-conventional`
+//   3. The commit-msg hook auto-detects the config and runs `npx commitlint`.
+//
+// Without activation, the shell regex in .githooks/commit-msg enforces the
+// Conventional Commits *subject line* format. Activate this to also enforce
+// scope enums, body line length, footer rules, etc.
+
+module.exports = {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    'subject-case': [0],                       // allow any subject case
+    'body-max-line-length': [1, 'always', 100],
+    // Add a scope enum for your repo, e.g.:
+    // 'scope-enum': [2, 'always', ['api', 'auth', 'docs', 'infra']],
+  },
+};

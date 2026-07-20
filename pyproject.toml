@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resumable-batch"
+version = "0.1.0"
+description = "Domain-agnostic, content-addressed, crash-atomic checkpoint + transient-retry engine for long-running chunked work."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "9owlsboston" }]
+keywords = ["checkpoint", "resume", "batch", "retry", "idempotent", "crash-atomic"]
+# The orchestrator core is dependency-light (stdlib only). Result stores that
+# need third-party serializers pull their deps via extras (AGENTS §2).
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/9owlsboston/resumable-batch"
+Source = "https://github.com/9owlsboston/resumable-batch"
+
+[project.optional-dependencies]
+# ParquetResultStore only — keep pyarrow out of the orchestrator core.
+parquet = ["pyarrow>=14", "pandas>=2.0"]
+test = ["pytest>=7", "pyarrow>=14", "pandas>=2.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

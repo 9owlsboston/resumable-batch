@@ -46,3 +46,32 @@ logs/
 tmp/
 .tmp/
 .cache/
+
+# --- Docs-stack ignore patterns ---
+# Appended by `bootstrap-repo.sh --stack docs`. Covers static-site generators
+# and local doc-build artifacts. Safe to delete the ones you don't use.
+
+# MkDocs
+site/
+
+# Sphinx / Read the Docs
+_build/
+docs/_build/
+
+# Hugo / Jekyll / 11ty
+public/
+_site/
+.jekyll-cache/
+.jekyll-metadata
+
+# Vale / linkcheck caches
+.vale/
+.linkcheck/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/

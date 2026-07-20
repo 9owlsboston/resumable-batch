@@ -1,0 +1,71 @@
+#!/bin/sh
+# Generic pre-push guard (dev-env-setup parallel-agent toolkit).
+#
+# Two checks, in order:
+#   1. Block direct push to a protected branch (main/master).
+#   2. Require a CHANGELOG.md diff on this branch — unless the branch is a
+#      documented carve-out (noncodefix/*, spike/*) or the repo has no
+#      CHANGELOG.md at all (convention not yet adopted).
+#
+# Fast local feedback only — the authoritative blocks are GitHub branch
+# protection (server-side, can't bypass) and CI gates.
+# Local bypass: git push --no-verify
+
+protected_branches='refs/heads/main refs/heads/master'
+
+# Determine the default branch (for the CHANGELOG diff base) once.
+default_branch="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@')"
+[ -z "$default_branch" ] && default_branch="main"
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+    # --- check 1: direct push to protected branch ---
+    case " $protected_branches " in
+        *" $remote_ref "*)
+            echo "STOP: direct push to '$remote_ref' is blocked. Open a PR instead:" >&2
+            echo "  git push -u origin <your-branch> && gh pr create --fill" >&2
+            exit 1
+            ;;
+    esac
+
+    # --- check 2: CHANGELOG entry on non-carve-out branches ---
+    # Only check if the repo has adopted CHANGELOG.md as a convention.
+    [ -f CHANGELOG.md ] || continue
+
+    # Extract the short branch name from the remote ref (refs/heads/<name>).
+    branch="${remote_ref#refs/heads/}"
+
+    case "$branch" in
+        noncodefix/*|spike/*|release/*|"$default_branch")
+            # Carve-outs: no CHANGELOG enforcement.
+            continue
+            ;;
+    esac
+
+    # Compute the diff base — the merge-base with the default branch.
+    base="$(git merge-base "origin/$default_branch" "$_local_sha" 2>/dev/null)"
+    if [ -z "$base" ]; then
+        # No common ancestor (e.g. unrelated history). Skip with a warning.
+        echo "warn: pre-push could not find merge-base with origin/$default_branch — skipping CHANGELOG check" >&2
+        continue
+    fi
+
+    if ! git diff --name-only "$base" "$_local_sha" | grep -qx 'CHANGELOG.md'; then
+        cat >&2 <<EOF
+STOP: no CHANGELOG.md entry on branch '$branch'.
+
+  Add a one-line row under '## [Unreleased]' before pushing:
+    ### Added | Changed | Fixed | Removed | Security
+    - <one-line summary> (PR #NNN)
+
+  Carve-out branches that SKIP this check:
+    noncodefix/<topic>   non-code fast lane
+    spike/<topic>        exploratory; never merges
+    release/<version>    release-please cuts the section automatically
+
+  Bypass once: git push --no-verify   (not recommended)
+EOF
+        exit 1
+    fi
+done
+
+exit 0
