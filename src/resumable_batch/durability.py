@@ -28,7 +28,9 @@ _IS_WINDOWS = os.name == "nt"
 # ---------------------------------------------------------------------------
 
 def _fsync_file(path: os.PathLike | str) -> None:
-    fd = os.open(str(path), os.O_RDONLY)
+    # fsync needs a WRITABLE fd on Windows (os.fsync -> _commit); an O_RDONLY fd
+    # raises EBADF there. O_RDWR works on both platforms for our (writable) files.
+    fd = os.open(str(path), os.O_RDWR)
     try:
         os.fsync(fd)
     finally:
