@@ -250,10 +250,16 @@ class AtomicManifestStore:
             return "miss"
         if meta.get("record_count") != str(count):
             return "miss"
-        # Generation binding — payload file must agree with the manifest entry.
+        # Generation binding — payload file must agree with the manifest entry on
+        # EVERY completeness field, not just digest/generation (defense-in-depth:
+        # a manifest whose byte_len/record_count were tampered no longer agrees).
         if meta.get("generation_id") != entry.get("generation_id"):
             return "miss"
         if meta.get("result_digest") != entry.get("result_digest"):
+            return "miss"
+        if str(entry.get("byte_len")) != str(byte_len):
+            return "miss"
+        if str(entry.get("record_count")) != str(count):
             return "miss"
         return "ok"
 

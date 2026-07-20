@@ -54,17 +54,26 @@ class TestResultDigestCompleteness:
         assert store.has(ck, ph) is False               # digest mismatch
 
     def test_digest_scope_excludes_metadata_header(self, tmp_path, held_lock):
-        # Editing ONLY the embedded meta header (outside the digest scope) must not
-        # change the record digest — it fails other identity checks instead, never
-        # a false digest pass.
+        # Actively mutate ONLY the embedded meta header (line 0, outside the digest
+        # scope) and assert the recomputed record digest is UNCHANGED — proving the
+        # digest is non-self-referential (design C1). The tampered header instead
+        # trips the identity checks, so has() is a miss, never a false digest pass.
         store = self._jsonl_store(tmp_path, held_lock)
         ck, ph = ckfn(["a"])
-        store.commit(ck, ph, [{"id": 1}])
-        read = store._read_file(store._path_for(ck))
-        assert read is not None
-        result, _meta = read
-        digest, blen, cnt = store._digest_info(result)
-        assert cnt == 1 and blen > 0 and len(digest) == 64
+        store.commit(ck, ph, [{"id": 1}, {"id": 2}])
+        path = store._path_for(ck)
+        before = store._digest_info(store._read_file(path)[0])
+
+        lines = path.read_text().split("\n")
+        head = json.loads(lines[0])
+        head["__resumable_batch_meta__"]["result_digest"] = "f" * 64   # lie in header
+        head["__resumable_batch_meta__"]["byte_len"] = "1"
+        lines[0] = json.dumps(head)
+        path.write_text("\n".join(lines))
+
+        after = store._digest_info(store._read_file(path)[0])
+        assert after == before          # record digest invariant to header edits
+        assert store.has(ck, ph) is False   # header lie -> miss, not a false hit
 
     def test_parquet_body_flip_is_miss(self, tmp_path, held_lock):
         store = parquet_store(tmp_path, held_lock)
@@ -439,3 +448,116 @@ class TestStoreHardening:
         # In-memory state rolled back: the store does NOT vouch for the payload.
         assert ck not in store.cached_keys
         assert store.has(ck, ph) is False
+
+
+# ---------------------------------------------------------------------------
+# Store read-path exception-safety + digest stability (verify/rubber-duck round 2)
+# ---------------------------------------------------------------------------
+
+class TestReadPathRobustness:
+    def _jsonl_store(self, tmp_path, held_lock, **kw):
+        return rb.JsonlResultStore(tmp_path / ".cache" / "j", lock=held_lock,
+                                   fingerprint="fp-1", **kw)
+
+    def test_jsonl_invalid_utf8_is_miss_not_exception(self, tmp_path, held_lock):
+        store = self._jsonl_store(tmp_path, held_lock)
+        ck, ph = ckfn(["a"])
+        store.commit(ck, ph, [{"id": 1}])
+        # Corrupt the file with invalid UTF-8 bytes -> a benign miss, never a
+        # UnicodeDecodeError escaping has().
+        store._path_for(ck).write_bytes(b"\xff\xfe not utf-8 \x80\x81")
+        assert store.has(ck, ph) is False
+        with pytest.raises(RuntimeError):   # load() rejects too, no raw decode error
+            store.load(ck, ph)
+
+    def test_parquet_unconvertible_body_is_miss_not_exception(
+            self, tmp_path, held_lock, monkeypatch):
+        import pyarrow.parquet as pq
+        store = parquet_store(tmp_path, held_lock)
+        ck, ph = ckfn(["a"])
+        store.commit(ck, ph, frame_for(["a"]))
+
+        # Simulate a readable-but-corrupt body: the table opens but to_pandas()
+        # raises. has() must treat it as a miss, not let the exception escape.
+        class _FakeSchema:
+            metadata = {b"content_key": ck.encode()}
+
+        class _FakeTable:
+            schema = _FakeSchema()
+
+            def to_pandas(self):
+                raise ValueError("corrupt pandas metadata")
+
+        monkeypatch.setattr(pq, "read_table", lambda *a, **k: _FakeTable())
+        assert store.has(ck, ph) is False   # miss, not an exception out of has()
+
+    def test_parquet_digest_stable_for_list_column(self, tmp_path, held_lock):
+        # A list-valued column renders differently raw vs after an Arrow round-trip
+        # (python list "[1, 2]" vs numpy array "[1 2]"); the digest normalizes
+        # through the round-trip so a freshly committed result is an immediate hit.
+        store = parquet_store(tmp_path, held_lock)
+        ck, ph = ckfn(["a"])
+        frame = pd.DataFrame({"g": ["x", "y"], "vals": [[1, 2], [3, 4]]})
+        store.commit(ck, ph, frame)
+        assert store.has(ck, ph) is True        # would be False with a raw to_csv
+        reopened = parquet_store(tmp_path, held_lock)
+        assert reopened.has(ck, ph) is True
+
+    def test_manifest_byte_len_tamper_is_miss(self, tmp_path, held_lock):
+        import json
+        store = parquet_store(tmp_path, held_lock)
+        ck, ph = ckfn(["a"])
+        store.commit(ck, ph, frame_for(["a"]))
+        mpath = tmp_path / ".cache" / "job" / rb.MANIFEST_NAME
+        doc = json.loads(mpath.read_text())
+        doc["entries"][ck]["byte_len"] = 999999      # tamper the completeness field
+        mpath.write_text(json.dumps(doc))
+        store2 = parquet_store(tmp_path, held_lock)
+        assert store2.has(ck, ph) is False
+
+    def test_manifest_record_count_tamper_is_miss(self, tmp_path, held_lock):
+        import json
+        store = parquet_store(tmp_path, held_lock)
+        ck, ph = ckfn(["a"])
+        store.commit(ck, ph, frame_for(["a"]))
+        mpath = tmp_path / ".cache" / "job" / rb.MANIFEST_NAME
+        doc = json.loads(mpath.read_text())
+        doc["entries"][ck]["record_count"] = 42
+        mpath.write_text(json.dumps(doc))
+        store2 = parquet_store(tmp_path, held_lock)
+        assert store2.has(ck, ph) is False
+
+
+# ---------------------------------------------------------------------------
+# Legacy-cache fixture — the SCHEMA_VERSION bump wipes (not corrupts) old caches
+# (spec §7 test-plan item)
+# ---------------------------------------------------------------------------
+
+class TestLegacyCacheFixture:
+    def test_v1_schema_cache_is_wiped_on_open(self, tmp_path, held_lock):
+        import json
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        from resumable_batch.stores.parquet import _table_schema_fp
+
+        cache = tmp_path / ".cache" / "job"
+        cache.mkdir(parents=True)
+        ck, ph = ckfn(["a"])
+        # A v1 (pre-generation-binding) parquet: old embedded metadata, schema_version=1.
+        table = pa.Table.from_pandas(frame_for(["a"]), preserve_index=False)
+        kv = {b"content_key": ck.encode(), b"payload_hash": ph.encode(),
+              b"fingerprint": b"fp-1", b"schema_version": b"1",
+              b"schema_fingerprint": _table_schema_fp(table.schema).encode()}
+        pq.write_table(table.replace_schema_metadata(kv), str(cache / f"{ck}.parquet"))
+        # A v1 manifest: schema_version=1, entries lack generation_id/result_digest.
+        (cache / rb.MANIFEST_NAME).write_text(json.dumps({
+            "schema_version": 1, "fingerprint": "fp-1",
+            "entries": {ck: {"payload_hash": ph, "schema_version": 1,
+                             "schema_fingerprint": "g:str;v:int", "committed_at": 0}},
+        }))
+
+        # Opening a current store must WIPE (not corrupt/read) the v1 cache.
+        store = parquet_store(tmp_path, held_lock, fingerprint="fp-1")
+        assert store.cached_keys == set()
+        assert store.has(ck, ph) is False
+        assert not list(cache.glob("*.parquet"))          # old payload removed

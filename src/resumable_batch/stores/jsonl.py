@@ -58,10 +58,13 @@ class JsonlResultStore(AtomicManifestStore):
             fh.flush()
 
     def _read_file(self, path: Path):
+        # Any corruption (bad UTF-8, torn framing, non-JSON lines, missing header)
+        # must be a benign miss, never an exception escaping has()/load() — the
+        # orchestrator relies on a miss to recompute.
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 lines = fh.read().split("\n")
-        except OSError:
+        except (OSError, UnicodeDecodeError, ValueError):
             return None
         # Drop a single trailing empty line from the final newline.
         if lines and lines[-1] == "":

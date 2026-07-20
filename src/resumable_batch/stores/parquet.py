@@ -78,10 +78,15 @@ class ParquetResultStore(AtomicManifestStore):
     # -- digest scope: records/rows only, deterministic + roundtrip-stable ---
 
     def _canonical_bytes(self, result) -> bytes:
-        # CSV of the row data excludes parquet key-value metadata by construction
-        # (non-self-referential, design C1) and is deterministic given column
-        # order. A dropped/edited row or a column change moves the digest.
-        return result.to_csv(index=False).encode("utf-8")
+        # Digest the row data (excludes parquet key-value metadata by
+        # construction — non-self-referential, design C1). Normalize THROUGH an
+        # Arrow round-trip first so the commit-side digest (raw input frame) and
+        # the read-side digest (frame read back via table.to_pandas()) are
+        # byte-identical for ALL dtypes — not just scalars. Without this, a list-
+        # or Decimal-valued column renders differently after round-trip and a
+        # freshly committed result would fail its own has() check forever.
+        normalized = self._table_for(result).to_pandas()
+        return normalized.to_csv(index=False).encode("utf-8")
 
     def _record_count(self, result) -> int:
         return int(len(result))
@@ -100,12 +105,16 @@ class ParquetResultStore(AtomicManifestStore):
 
     def _read_file(self, path: Path):
         import pyarrow.parquet as pq
+        # Guard the WHOLE read: read_table, metadata decode, AND to_pandas — a
+        # readable-but-corrupt body (bad pandas metadata, unconvertible column)
+        # must be a benign miss, never an exception escaping has()/load().
         try:
             table = pq.read_table(str(path))
+            meta = self._decode_meta(table.schema.metadata)
+            frame = table.to_pandas()
         except Exception:  # noqa: BLE001 — truncated/corrupt -> miss
             return None
-        meta = self._decode_meta(table.schema.metadata)
-        return table.to_pandas(), meta
+        return frame, meta
 
     @staticmethod
     def _decode_meta(kv) -> "dict[str, str]":
