@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pyproject.toml` (package `resumable_batch`; `parquet`/`test` extras) and a
   Linux + Windows GitHub Actions CI matrix.
 - Ported CUD regression suite + generalized-feature tests (89 tests).
+- Newcomer documentation on-ramp: `docs/guides/getting-started.md` (runnable job +
+  crash/resume demo), `docs/reference/concepts.md` (vocabulary + store selection),
+  `docs/reference/api.md` (full API reference), `docs/guides/handling-failures.md`
+  (classifiers/retry/split); README restructured to lead with a runnable example.
 
 ### Changed
 - Repo grown from profile `xs` to `m` (git hooks + collaborative scaffolding).

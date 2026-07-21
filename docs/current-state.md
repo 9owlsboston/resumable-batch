@@ -32,6 +32,10 @@ _No diagram yet — add one under `docs/diagrams/` when a topic doc needs it._
 
 - **Design** — accepted, v3 (rubber-duck passed, 11 findings closed). See
   [`docs/design/checkpoint-library-generalization.md`](design/checkpoint-library-generalization.md).
+- **Docs** — newcomer on-ramp added: `guides/getting-started.md`,
+  `guides/handling-failures.md`, `reference/concepts.md`, `reference/api.md`; README
+  restructured to lead with a runnable example. Fills the previously-empty
+  `guides/`/`reference/` buckets.
 - **Implementation** — done. Package `src/resumable_batch/`: `engine`
   (`run_checkpointed`), `stores/{base,parquet,jsonl}`, cross-OS `locking` +
   `durability`, `model`, `classifiers`, `errors`.
