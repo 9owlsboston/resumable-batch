@@ -79,3 +79,25 @@ stale test count (79 → 89) in CHANGELOG + current-state.
 
 Verified: `python3 -m pytest` → **89 passed** on Linux; `compileall` clean. Both
 Windows CI legs green after merge (see PR #2).
+
+### 2026-07-20 — Newcomer docs on-ramp (audit + fill the gaps)
+
+Audited the docs for newcomer-readiness: every doc led with the extraction
+narrative (acr-analytics / consumer #1 / #2), the README quickstart was a
+non-runnable fragment, and `docs/guides/`/`docs/reference/` were empty (`.gitkeep`
+only) — a novice who just wants "run my batch idempotently and resumably" had no
+on-ramp. Filled the gaps: added `guides/getting-started.md` (a complete runnable
+JSONL job + a crash-and-resume demo), `reference/concepts.md` (content_key /
+payload_hash / fingerprint / manifest / combine-vs-reduce / split-vs-transient
+glossary + store-selection), `reference/api.md` (full `run_checkpointed` parameter
+tables, `ResultStore` protocol, stores, locking, durability, errors), and
+`guides/handling-failures.md` (classifiers, `RetryPolicy`, `SplitPolicy` how-tos).
+Restructured the README to lead with problem + a runnable example and demoted the
+provenance below the fold; linked all four docs from the README + current-state.
+
+Verified: every code example was executed against the installed package before
+being written into the docs — getting-started run twice (`committed:3,resumed:0`
+then `committed:0,resumed:3`), 3-item crash-then-resume (`committed:1,resumed:2`),
+transient `ConnectionError` retry (all committed, `transient_retries:1`), and
+split-on-OOM of `[1,2,3,4]` (`splits:1`, output covers all four). `python3 -m
+pytest` → **89 passed** on Linux (docs-only change, no code touched).
