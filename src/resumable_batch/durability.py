@@ -16,11 +16,13 @@ from __future__ import annotations
 import enum
 import logging
 import os
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = os.name == "nt"
+_IS_MACOS = sys.platform == "darwin"
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +90,12 @@ _FS_MAGIC = {
 }
 
 # Known-durable filesystem types (atomic rename + fsync durability guaranteed).
-# NTFS is added for the Windows path (resolved via GetDriveType, below).
-DURABLE_FS_ALLOWLIST = frozenset({"ext", "ext4", "xfs", "ntfs"})
+# NTFS is added for the Windows path (resolved via GetDriveType, below); apfs/hfs
+# for the macOS path (resolved via Darwin statfs f_fstypename, below). As with
+# Windows, macOS fsync strength (F_FULLFSYNC) is a performance detail only —
+# correctness is carried by generation binding (design §4.3/§4.4), so the same
+# atomic-rename guarantee that admits ext/xfs admits apfs/hfs.
+DURABLE_FS_ALLOWLIST = frozenset({"ext", "ext4", "xfs", "ntfs", "apfs", "hfs"})
 
 
 def _statfs_f_type(path: str) -> int:
@@ -105,6 +111,51 @@ def _statfs_f_type(path: str) -> int:
     # struct statfs on x86_64 Linux: f_type is the first field, __fsword_t (8B).
     (f_type,) = struct.unpack_from("q", buf.raw, 0)
     return f_type & 0xFFFFFFFF
+
+
+# Darwin ``struct statfs`` (64-bit-inode, <sys/mount.h>) field offsets. The FS
+# name is carried directly as ``f_fstypename`` (a 16-byte char[]), which is far
+# more robust than magic numbers:
+#   f_bsize u32 @0, f_iosize i32 @4, f_blocks u64 @8, f_bfree u64 @16,
+#   f_bavail u64 @24, f_files u64 @32, f_ffree u64 @40, f_fsid i32[2] @48,
+#   f_owner u32 @56, f_type u32 @60, f_flags u32 @64, f_fssubtype u32 @68,
+#   f_fstypename char[16] @72, f_mntonname char[1024] @88, ...  (struct ~2168B)
+_DARWIN_STATFS_FSTYPENAME_OFF = 72
+_DARWIN_MFSTYPENAMELEN = 16
+_DARWIN_STATFS_BUFSZ = 4096  # over-allocate (struct is ~2168B) for safety.
+
+
+def _statfs_fstypename_macos(path: str) -> str:
+    """Return Darwin ``f_fstypename`` (e.g. ``apfs``/``hfs``) for ``path``.
+
+    Raises on any failure so the caller falls back to ``unknown(...)`` and the
+    cache fails closed — a wrong/garbage read can never *enable* caching. To make
+    that invariant robust against a wrong offset or a corrupted buffer, the
+    16-byte field is accepted only when it is a well-formed C string: a non-empty
+    run of printable ASCII, a NUL terminator, and all-zero padding after it.
+    Anything else raises."""
+    import ctypes
+
+    # libSystem (always loaded) carries statfs; CDLL(None) resolves it on macOS.
+    libc = ctypes.CDLL(None, use_errno=True)
+    # macOS 10.6+ exposes the 64-bit-inode struct under the bare ``statfs``
+    # symbol; older SDKs need the explicit ``$INODE64`` alias — prefer it.
+    statfs = getattr(libc, "statfs$INODE64", None) or libc.statfs
+    buf = ctypes.create_string_buffer(_DARWIN_STATFS_BUFSZ)
+    if statfs(os.fsencode(str(path)), buf) != 0:
+        err = ctypes.get_errno()
+        raise OSError(err, os.strerror(err), str(path))
+    raw = buf.raw[_DARWIN_STATFS_FSTYPENAME_OFF:
+                  _DARWIN_STATFS_FSTYPENAME_OFF + _DARWIN_MFSTYPENAMELEN]
+    nul = raw.find(b"\x00")
+    if nul <= 0:  # no terminator, or empty name -> malformed field
+        raise ValueError(f"f_fstypename not a non-empty C string: {raw!r}")
+    if raw[nul:] != b"\x00" * (_DARWIN_MFSTYPENAMELEN - nul):  # non-zero padding
+        raise ValueError(f"f_fstypename padding not zeroed: {raw!r}")
+    name = raw[:nul]
+    if not name.isascii() or not name.replace(b"_", b"").isalnum():
+        raise ValueError(f"f_fstypename not an fs-name token: {raw!r}")
+    return name.decode("ascii").lower()
 
 
 def _nearest_existing(path: os.PathLike | str) -> str:
@@ -150,14 +201,21 @@ def resolve_fs_type(path: os.PathLike | str) -> str:
     """Resolve symlinks, then classify the FS type of the REAL path.
 
     Walks up to the nearest existing ancestor (the cache dir may not exist yet).
-    Returns a friendly name (``ext``/``xfs``/``ntfs``/``tmpfs``/...) or an
-    ``unknown(...)`` label when the type is unrecognised."""
+    Returns a friendly name (``ext``/``xfs``/``ntfs``/``apfs``/``tmpfs``/...) or
+    an ``unknown(...)`` label when the type is unrecognised. Dispatch is
+    per-platform: Windows volume info, macOS Darwin ``statfs f_fstypename``,
+    otherwise Linux ``statfs`` magic."""
     if _IS_WINDOWS:
         try:
             return _resolve_fs_type_windows(path)
         except Exception:  # noqa: BLE001 — any WinAPI failure -> unknown -> fail closed
             return "unknown(winapi-failed)"
     probe = _nearest_existing(path)
+    if _IS_MACOS:
+        try:
+            return _statfs_fstypename_macos(probe)
+        except Exception:  # noqa: BLE001 — any failure -> unknown -> fail closed
+            return "unknown(statfs-failed)"
     try:
         magic = _statfs_f_type(probe)
     except OSError:

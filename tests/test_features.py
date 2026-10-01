@@ -402,6 +402,95 @@ class TestCrossOsLockDurability:
         monkeypatch.setattr(durability, "resolve_fs_type", lambda p: "ntfs")
         assert rb.fs_cache_enabled(tmp_path) is True
 
+    def test_apfs_in_durable_allowlist(self):
+        # I-GZKE: macOS/APFS must be allowlisted so Mac engagements can cache.
+        assert "apfs" in rb.DURABLE_FS_ALLOWLIST
+        assert "hfs" in rb.DURABLE_FS_ALLOWLIST
+
+    def test_apfs_enables_cache(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(durability, "resolve_fs_type", lambda p: "apfs")
+        assert rb.fs_cache_enabled(tmp_path) is True
+
+    def test_macos_statfs_reads_fstypename(self, tmp_path, monkeypatch):
+        # Simulate the Darwin statfs path: build a buffer with "apfs" at the
+        # f_fstypename offset and assert resolve_fs_type decodes it. Exercises
+        # the macOS branch on any host.
+        import ctypes
+
+        monkeypatch.setattr(durability, "_IS_MACOS", True)
+        monkeypatch.setattr(durability, "_IS_WINDOWS", False)
+
+        off = durability._DARWIN_STATFS_FSTYPENAME_OFF
+        fake = bytearray(durability._DARWIN_STATFS_BUFSZ)
+        fake[off:off + 4] = b"apfs"
+
+        class _FakeStatfs:
+            def __call__(self, c_path, buf):
+                ctypes.memmove(buf, bytes(fake), len(fake))
+                return 0
+
+        class _FakeLibc:
+            statfs = _FakeStatfs()
+
+            def __getattr__(self, name):  # no $INODE64 alias
+                raise AttributeError(name)
+
+        monkeypatch.setattr(ctypes, "CDLL", lambda *a, **k: _FakeLibc())
+        assert durability.resolve_fs_type(tmp_path) == "apfs"
+        assert rb.fs_cache_enabled(tmp_path) is True
+
+    @pytest.mark.parametrize("payload", [
+        b"apfsXXXXXXXXXXXX",            # no NUL terminator -> malformed
+        b"apfs\x00\x01padding\x00\x00",  # non-zero padding after NUL
+        b"ap\xffs\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",  # non-ASCII
+        b"\x00" * 16,                    # empty name
+    ])
+    def test_macos_malformed_fstypename_fails_closed(self, tmp_path, monkeypatch, payload):
+        # A successful statfs whose f_fstypename slice is NOT a clean,
+        # NUL-terminated, zero-padded ASCII token must fail closed — a wrong
+        # offset or corrupt buffer can never false-enable caching.
+        import ctypes
+
+        monkeypatch.setattr(durability, "_IS_MACOS", True)
+        monkeypatch.setattr(durability, "_IS_WINDOWS", False)
+
+        off = durability._DARWIN_STATFS_FSTYPENAME_OFF
+        fake = bytearray(durability._DARWIN_STATFS_BUFSZ)
+        fake[off:off + durability._DARWIN_MFSTYPENAMELEN] = payload
+
+        class _FakeLibc:
+            def statfs(self, c_path, buf):
+                ctypes.memmove(buf, bytes(fake), len(fake))
+                return 0
+
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        monkeypatch.setattr(ctypes, "CDLL", lambda *a, **k: _FakeLibc())
+        assert durability.resolve_fs_type(tmp_path) == "unknown(statfs-failed)"
+        assert rb.fs_cache_enabled(tmp_path, rb.FsPolicy.FAIL_CLOSED) is False
+
+    def test_macos_statfs_failure_fails_closed(self, tmp_path, monkeypatch):
+        # A non-zero statfs return (or any error) must degrade to unknown ->
+        # cache disabled, never enabled on a bad read.
+        import ctypes
+
+        monkeypatch.setattr(durability, "_IS_MACOS", True)
+        monkeypatch.setattr(durability, "_IS_WINDOWS", False)
+
+        class _FailLibc:
+            def statfs(self, c_path, buf):
+                return -1
+
+            def __getattr__(self, name):
+                raise AttributeError(name)
+
+        monkeypatch.setattr(ctypes, "set_errno", lambda *a, **k: None, raising=False)
+        monkeypatch.setattr(ctypes, "get_errno", lambda: 1)
+        monkeypatch.setattr(ctypes, "CDLL", lambda *a, **k: _FailLibc())
+        assert durability.resolve_fs_type(tmp_path) == "unknown(statfs-failed)"
+        assert rb.fs_cache_enabled(tmp_path, rb.FsPolicy.FAIL_CLOSED) is False
+
 
 # ---------------------------------------------------------------------------
 # Store robustness hardenings (diff-stage rubber-duck findings)
