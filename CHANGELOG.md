@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- macOS/APFS durable-cache support (I-GZKE). `durability.resolve_fs_type` loaded
+  `libc.so.6` on every non-Windows platform, which does not exist on macOS, so the
+  statfs probe raised → `unknown(statfs-failed)` → the cache **failed closed on every
+  Mac**. Added a Darwin branch that reads `struct statfs.f_fstypename` via
+  `ctypes.CDLL(None)` and allowlisted `apfs`/`hfs`. The field is accepted only as a
+  well-formed NUL-terminated, zero-padded ASCII token, so a wrong offset or corrupt
+  buffer still fails closed (never false-enables caching). Linux path unchanged.
+  _Runtime verification on real macOS/APFS hardware is a required follow-up (simulated
+  via mocked Darwin buffers in CI)._
+
 ### Added
 - Initial engine implementation ported from `acr-analytics/scripts/recipes/batch_checkpoint.py`
   behind the generalized API: `run_checkpointed` orchestrator, pluggable
